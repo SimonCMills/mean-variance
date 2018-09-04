@@ -80,7 +80,7 @@ df_fmtd <- df_full %>%
     
 ## apply cleaning step ----
 # there have to be at least 10 functional observations (a non-zero count in either year
-# t or year t-1)
+# t or year t-1) & not a long-distance migrant (3 cases)
 df_cleaned <- df_fmtd %>%
     ungroup %>%
     na.omit %>% # remove NAs
@@ -89,14 +89,16 @@ df_cleaned <- df_fmtd %>%
     filter(n() >= 10) %>%
     group_by(species) %>%
     filter(length(unique(siteID)) >= 50) %>%
-    ungroup
+    ungroup %>%
+    filter(!species %in% c("Clouded yellow", "Red admiral", "Painted lady"))
 
 ## plot layout & nDP summary ----
 df_cleaned %>%
     dplyr::select(siteID, lon_BNG, lat_BNG) %>%
     unique %>%
-    ggplot(aes(lon_BNG, lat_BNG)) + geom_point() +
-    geom_polygon(data = UK_outline, aes(x = lon_BNG, y = lat_BNG, group = group), fill=NA, col="black") +
+    ggplot(aes(lon_BNG, lat_BNG)) +
+    geom_polygon(data = UK_outline, aes(x = lon_BNG, y = lat_BNG, group = group), fill="white", col="black") +
+    geom_point() +
     coord_equal() +
     labs(caption=bquote(bold(Figure)~"Sites retained after formatting, rough version"), 
          x="Easting", y="Northing") +
@@ -108,19 +110,43 @@ ggsave("figures/retained sites after formatting_rough ver.png")
 df_cleaned %>%
     dplyr::select(species, siteID, lon_BNG, lat_BNG) %>%
     unique %>%
-    ggplot(aes(lon_BNG, lat_BNG)) + geom_point() +
-    geom_polygon(data = UK_outline, aes(x = lon_BNG, y = lat_BNG, group = group), fill=NA, col="black") +
+    mutate(id = as.numeric(as.factor(species))) %>%
+    filter(id %in% 1:20) %>%
+    ggplot(aes(lon_BNG, lat_BNG)) +
+    geom_polygon(data = UK_outline, aes(x = lon_BNG, y = lat_BNG, group = group), fill="white", col="black") +
+    geom_point() +
     coord_equal() +
     labs(caption=bquote(bold(Figure)~"Sites retained after formatting, rough version"), 
          x="Easting", y="Northing") +
-    facet_wrap(~species, ncol=8) +
+    facet_wrap(~species, ncol=5) +
     theme_minimal() +
     theme(axis.text = element_blank(), 
           axis.ticks = element_blank(), 
-          strip.text=element_text(hjust=0, face="bold"))
+          strip.text=element_text(hjust=0, face="bold", size=8))
 
-ggsave("figures/retained sites after formatting_rough ver_by species.png", 
-       height=250, width=200, units="mm")
+ggsave("figures/retained sites after formatting_by species_p1.png", 
+       height=297, width=200, units="mm")
+
+df_cleaned %>%
+    dplyr::select(species, siteID, lon_BNG, lat_BNG) %>%
+    unique %>%
+    mutate(id = as.numeric(as.factor(species))) %>%
+    filter(id %in% 21:32) %>%
+    ggplot(aes(lon_BNG, lat_BNG)) +
+    geom_polygon(data = UK_outline, aes(x = lon_BNG, y = lat_BNG, group = group), fill="white", col="black") +
+    geom_point() +
+    coord_equal() +
+    labs(caption=bquote(bold(Figure)~"Sites retained after formatting, rough version"), 
+         x="Easting", y="Northing") +
+    facet_wrap(~species, ncol=5) +
+    theme_minimal() +
+    theme(axis.text = element_blank(), 
+          axis.ticks = element_blank(), 
+          strip.text=element_text(hjust=0, face="bold", size=8))
+
+ggsave("figures/retained sites after formatting_by species_p2.png", 
+       height=297*.75, width=200, units="mm")
+
 
 summarise_nDP <- df_cleaned %>%
     group_by(species) %>%
@@ -136,5 +162,17 @@ ggplot(summarise_nDP, aes(value, species)) + geom_point() + facet_wrap(~variable
           strip.text = element_text(hjust=0, face="bold"))
 ggsave("figures/nDP_summary.png", width=190, height=150, units="mm")
 
+# create summary table
+summaryTable <- df_cleaned %>%
+    group_by(species) %>%
+    summarise(fullName = unique(paste0(species, ", ", species_LB)), 
+              `Number of observations` = n(), 
+              `Number of sites` = length(unique(siteID)), 
+              `first year` = min(year),
+              `last year` = max(year)) %>%
+    arrange(`Number of observations`,`Number of sites`) %>% 
+    filter(`Number of sites` > 50) %>% 
+    arrange(desc(`Number of observations`))
+write.csv(summaryTable, "files/summary_table.csv")
 ## save----
 saveRDS(df_cleaned, "files/clean butterfly dataset_v2.rds")
