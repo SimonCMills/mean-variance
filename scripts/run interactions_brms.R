@@ -1,7 +1,7 @@
 # get model comparisons using brms and WAIC
 #
 #
-library(brms); library(loo)
+library(brms); library(loo); library(dplyr)
 options(mc.cores = parallel::detectCores())
 
 dredged <- readRDS("../BFLY_spatial/files/dredgedCoefs_monthly_temp.rds") %>%
@@ -16,18 +16,18 @@ bfly_df %>%
     plot
 
 # read monthly temperature data
-month_df <- readRDS("../BFLY_spatial/files/temp&rain_wideformat.rds")
+month_df <- readRDS("files/temp_wideformat.rds")
 
 alts <- readRDS("../BFLY_spatial/files/elevation data/elevations.rds")
 
 bfly_full  <- month_df %>% 
     mutate(year = year-1) %>%
-    left_join(bfly_df, .) %>%
-    inner_join(bfly_df, alts)
+    left_join(bfly_df, ., by=c("siteID", "year")) %>% 
+    inner_join(., alts)
+
 
 ## iterate
 sp_list <- unique(bfly_full$species)
-sp_list <- sp_list[!(sp_list %in% c("Painted lady", "Clouded yellow", "Red admiral"))]
 catch_waic <- list()
 catch_preds <- list()
 for(i in sp_list) {
@@ -37,12 +37,13 @@ for(i in sp_list) {
     sd_i <- paste0(gsub("temp|rain", "sd", mean_i), "_", gsub("_[0-9]*", "", mean_i))
     CHB <- bfly_full %>%
         filter(species==i) %>%
-        dplyr::select(siteID, year, N_t, species, N_pre, lat_BNG, lon_BNG, #elev_site,
-                      mean = matches(paste0(mean_i, "$")), sd = matches(sd_i)) %>%
+        filter(elev_site <= 200) %>%
+        dplyr::select(siteID, year, N_t, species, N_pre, lat_BNG, lon_BNG, elev_site,
+                      mean = matches(paste0(mean_i, "$")), sd = matches(paste0(sd_i, "$"))) %>%
         na.omit %>% 
         mutate(siteID=factor(siteID), 
                mean = mean - mean(mean), 
-               # elev_site = scale(elev_site),
+               elev_site = scale(elev_site),
                lon_BNG = scale(lon_BNG), 
                lat_BNG = scale(lat_BNG),
                X_t =log(N_t+1), 
@@ -87,23 +88,21 @@ for(i in sp_list) {
 
 
 # Repeat, but with series of control variables
-sp_list <- unique(bfly_full$species)
-sp_list <- sp_list[!(sp_list %in% c("Painted lady", "Clouded yellow", "Red admiral"))]
 catch_waic <- list()
 catch_preds <- list()
 for(i in sp_list) {
     print(i)
     # get vars and extract data
     mean_i <- dredged %>% filter(species==i) %>% .$coef
-    sd_i <- paste0(gsub("temp|rain", "sd", mean_i), "_", gsub("_[0-9]*", "", mean_i))
+    sd_i <- gsub("temp", "sd", mean_i) 
     CHB <- bfly_full %>%
         filter(species==i) %>%
-        dplyr::select(siteID, year, N_t, species, N_pre, lat_BNG, lon_BNG, #elev_site,
-                      mean = matches(paste0(mean_i, "$")), sd = matches(sd_i)) %>%
+        dplyr::select(siteID, year, N_t, species, N_pre, lat_BNG, lon_BNG, elev_site,
+                      mean = matches(paste0(mean_i, "$")), sd = matches(paste0(sd_i, "$"))) %>%
         na.omit %>% 
         mutate(siteID=factor(siteID), 
                mean = mean - mean(mean), 
-               # elev_site = scale(elev_site),
+               elev_site = scale(elev_site),
                lon_BNG = scale(lon_BNG), 
                lat_BNG = scale(lat_BNG),
                X_t =log(N_t+1), 
@@ -111,10 +110,10 @@ for(i in sp_list) {
                X_pre_sc = scale(X_pre),
                X_diff = X_t - X_pre)
     
-    b_lin_sd <- brm(X_diff~ X_pre_sc + mean*sd + 
+    b_lin_sd <- brm(X_diff~ X_pre_sc + mean + sd + mean:sd + 
                         lat_BNG + mean:lat_BNG + lon_BNG + mean:lon_BNG +
                         elev_site + mean:elev_site +
-                        (1|siteID), iter=5000, data=CHB)
+                        (1|siteID), data=CHB)
     b_lin <- brm(X_diff~ X_pre + mean + 
                      lat_BNG + mean:lat_BNG + lon_BNG + mean:lon_BNG +
                      elev_site + mean:elev_site +
@@ -138,10 +137,11 @@ for(i in sp_list) {
     names(pNOSD_i) <- paste0("mean_", c("est", "SE", "lwr", "upr"))
     predicts_full_i <- bind_cols(predicts_i, pSD_i, pNOSD_i)
     
-    save(b_lin_sd, b_lin, b_null, w_sd, w_noSD, w_null, file = paste0("files/models/", i, "_controls2.Rdata"))
+    save(b_lin_sd, b_lin, b_null, w_sd, w_noSD, w_null, file = paste0("files/models/", i, "_controls.Rdata"))
     catch_waic[[i]] <- waic_i
     catch_preds[[i]] <- predicts_full_i
     
     saveRDS(catch_waic, "files/waic_updating_controls.rds")
     saveRDS(catch_preds, "files/preds_updating_controls.rds")
 }
+ 
